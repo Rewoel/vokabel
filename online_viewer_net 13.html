@@ -1,0 +1,814 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smarter Vokabeltrainer mit korrigierter Karten-Flip-Animation</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom styles for Inter font */
+        body {
+            font-family: "Inter", sans-serif;
+        }
+        /* Hide scrollbar for cleaner look, but allow scrolling */
+        .hide-scrollbar {
+            -ms-overflow-style: none;  /* IE and Edge */
+            scrollbar-width: none;  /* Firefox */
+        }
+        .hide-scrollbar::-webkit-scrollbar {
+            display: none; /* Chrome, Safari, Opera */
+        }
+
+        /* CSS für die Flip-Animation */
+        #learningArea {
+            perspective: 1000px; /* Erzeugt den 3D-Effekt für den Flip */
+        }
+
+        /* Der Hauptcontainer für die Karte */
+        #currentWord { /* Umbenannt von currentWordDisplay in der JS, aber ID bleibt gleich */
+            position: relative; /* Wichtig für absolute Positionierung der Seiten */
+            width: 100%;
+            height: 100px; /* Feste Höhe oder min-height wie zuvor */
+            transform-style: preserve-3d; /* Stellt sicher, dass die Kindelemente im 3D-Raum transformiert werden */
+            transition: transform 0.5s ease-in-out; /* Sanfter Übergang für die Drehung */
+            /* Tailwind-Klassen für Styling beibehalten */
+            @apply text-4xl font-extrabold text-blue-700 mb-6 bg-blue-50 p-4 rounded-lg shadow-md flex items-center justify-center;
+        }
+
+        /* Vorder- und Rückseite der Karte */
+        .card-face {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            backface-visibility: hidden; /* Verhindert, dass die Rückseite durchscheint */
+            display: flex; /* Für Zentrierung des Inhalts */
+            align-items: center; /* Vertikale Zentrierung */
+            justify-content: center; /* Horizontale Zentrierung */
+            /* Hintergrund und Textfarbe von der Hauptkarte erben oder neu definieren */
+            @apply bg-blue-50 text-blue-700;
+        }
+
+        /* Die Rückseite der Karte ist initial um 180 Grad gedreht, damit ihr Inhalt richtig herum ist, wenn die Hauptkarte gedreht wird */
+        #cardBack {
+            transform: rotateY(180deg);
+        }
+
+        /* Wenn der Hauptcontainer gedreht wird, wird die Rückseite sichtbar */
+        #currentWord.card-flipped {
+            transform: rotateY(180deg);
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-blue-100 to-purple-100 min-h-screen flex items-center justify-center p-4">
+    <div class="bg-white p-8 rounded-xl shadow-2xl w-full max-w-6xl flex flex-col lg:flex-row gap-8">
+        <div class="flex-1 bg-gray-50 p-6 rounded-lg shadow-inner">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6 text-center">Kapitel verwalten</h2>
+            <div class="mb-4">
+                <label for="chapterInput" class="block text-gray-700 text-sm font-semibold mb-2">Neues Kapitel:</label>
+                <input type="text" id="chapterInput" placeholder="Kapitelname eingeben"
+                       class="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-400 transition duration-200">
+            </div>
+            <button id="addChapterBtn"
+                    class="w-full bg-purple-600 text-white py-3 rounded-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 transition duration-200 shadow-lg">
+                Kapitel hinzufügen
+            </button>
+
+            <hr class="my-8 border-gray-200">
+
+            <h3 class="text-xl font-semibold text-gray-800 mb-4 text-center">Vorhandene Kapitel</h3>
+            <div id="chapterList" class="max-h-40 overflow-y-auto hide-scrollbar border border-gray-200 rounded-md p-4 bg-white shadow-sm">
+                <p class="text-gray-500 text-center" id="noChapterMessage">Noch keine Kapitel hinzugefügt.</p>
+            </div>
+
+            <hr class="my-8 border-gray-200">
+
+            <h3 class="text-xl font-semibold text-gray-800 mb-4 text-center">Daten sichern / laden</h3>
+            <div class="flex flex-col gap-4">
+                <button id="exportDataBtn"
+                        class="w-full bg-green-500 text-white py-3 rounded-md hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-offset-2 transition duration-200 shadow-lg">
+                    Daten exportieren (JSON)
+                </button>
+                <label for="importFile" class="block text-gray-700 text-sm font-semibold mb-2">Daten importieren:</label>
+                <input type="file" id="importFile" accept=".json"
+                       class="w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400 transition duration-200">
+                <button id="importDataBtn"
+                        class="w-full bg-blue-500 text-white py-3 rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2 transition duration-200 shadow-lg">
+                    Daten importieren
+                </button>
+                <p id="importExportFeedback" class="text-sm text-center min-h-[20px]"></p>
+            </div>
+        </div>
+
+        <div class="flex-1 bg-gray-50 p-6 rounded-lg shadow-inner">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6 text-center">Vokabeln hinzufügen</h2>
+            <div class="mb-4">
+                <label for="chapterSelect" class="block text-gray-700 text-sm font-semibold mb-2">Kapitel auswählen:</label>
+                <select id="chapterSelect"
+                        class="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400 transition duration-200" disabled>
+                    <option value="">-- Kapitel auswählen --</option>
+                </select>
+            </div>
+            <div class="mb-4">
+                <label for="lang1Input" class="block text-gray-700 text-sm font-semibold mb-2">Sprache 1 (z.B. Deutsch):</label>
+                <input type="text" id="lang1Input" placeholder="Vokabel in Sprache 1"
+                       class="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400 transition duration-200" disabled>
+            </div>
+            <div class="mb-6">
+                <label for="lang2Input" class="block text-gray-700 text-sm font-semibold mb-2">Sprache 2 (z.B. Englisch):</label>
+                <input type="text" id="lang2Input" placeholder="Vokabel in Sprache 2"
+                       class="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400 transition duration-200" disabled>
+            </div>
+            <button id="addVocabularyBtn"
+                    class="w-full bg-blue-600 text-white py-3 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition duration-200 shadow-lg" disabled>
+                Vokabel hinzufügen
+            </button>
+
+            <hr class="my-8 border-gray-200">
+
+            <h3 class="text-xl font-semibold text-gray-800 mb-4 text-center">Gespeicherte Vokabeln</h3>
+            <div id="vocabularyList" class="max-h-60 overflow-y-auto hide-scrollbar border border-gray-200 rounded-md p-4 bg-white shadow-sm">
+                <p class="text-gray-500 text-center" id="noVocabMessage">Noch keine Vokabeln hinzugefügt.</p>
+            </div>
+            <button id="clearAllVocabBtn"
+                    class="w-full mt-6 bg-red-500 text-white py-2 rounded-md hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-offset-2 transition duration-200 shadow-lg text-sm">
+                Alle Vokabeln löschen
+            </button>
+        </div>
+
+        <div class="flex-1 bg-gray-50 p-6 rounded-lg shadow-inner flex flex-col justify-between">
+            <div>
+                <h2 class="text-2xl font-bold text-gray-800 mb-6 text-center">Vokabeln lernen</h2>
+                <div class="mb-4">
+                    <label class="block text-gray-700 text-sm font-semibold mb-2">Kapitel zum Lernen auswählen:</label>
+                    <div id="learningChapterCheckboxes" class="flex flex-wrap gap-2 p-2 border border-gray-300 rounded-md bg-white">
+                        <p class="text-gray-500 text-sm" id="noLearningChapterMessage">Keine Kapitel verfügbar.</p>
+                    </div>
+                </div>
+
+                <div class="mb-6 p-4 border border-gray-300 rounded-md bg-white shadow-sm">
+                    <label class="block text-gray-700 text-sm font-semibold mb-2">Lernmodus:</label>
+                    <div class="flex items-center space-x-4 mb-2">
+                        <input type="radio" id="modeTyping" name="learningMode" value="typing" class="form-radio h-4 w-4 text-indigo-600" checked>
+                        <label for="modeTyping" class="text-gray-700">Tippen (Übersetzung eingeben)</label>
+                    </div>
+                    <div class="flex items-center space-x-4">
+                        <input type="radio" id="modeFlashcard" name="learningMode" value="flashcard" class="form-radio h-4 w-4 text-indigo-600">
+                        <label for="modeFlashcard" class="text-gray-700">Karte umdrehen (Vokabelkarten)</label>
+                    </div>
+                </div>
+
+                <div class="mb-6 p-4 border border-gray-300 rounded-md bg-white shadow-sm">
+                    <label class="block text-gray-700 text-sm font-semibold mb-2">Lernrichtung:</label>
+                    <div class="flex items-center space-x-4 mb-2">
+                        <input type="radio" id="directionLang1ToLang2" name="learningDirection" value="lang1-to-lang2" class="form-radio h-4 w-4 text-indigo-600" checked>
+                        <label for="directionLang1ToLang2" class="text-gray-700">Sprache 1 &rarr; Sprache 2</label>
+                    </div>
+                    <div class="flex items-center space-x-4">
+                        <input type="radio" id="directionLang2ToLang1" name="learningDirection" value="lang2-to-lang1" class="form-radio h-4 w-4 text-indigo-600">
+                        <label for="directionLang2ToLang1" class="text-gray-700">Sprache 2 &rarr; Sprache 1</label>
+                    </div>
+                </div>
+
+                <div id="learningArea" class="text-center">
+                    <div id="currentWord" class="text-4xl font-extrabold text-blue-700 mb-6 bg-blue-50 p-4 rounded-lg shadow-md min-h-[100px] flex items-center justify-center">
+                        <div id="cardFront" class="card-face">
+                            Klicken Sie auf 'Start'
+                        </div>
+                        <div id="cardBack" class="card-face">
+                            </div>
+                    </div>
+                    <input type="text" id="answerInput" placeholder="Ihre Antwort"
+                           class="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-400 transition duration-200 mb-4" disabled>
+                    <div id="feedbackMessage" class="text-lg font-semibold mb-4 min-h-[28px]"></div>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4 max-w-lg mx-auto">
+                    <button id="checkAnswerBtn"
+                            class="bg-green-500 text-white py-3 rounded-md hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-offset-2 transition duration-200 shadow-lg" disabled>
+                        Antwort prüfen
+                    </button>
+                    <button id="revealAnswerBtn"
+                            class="bg-yellow-500 text-white py-3 rounded-md hover:bg-yellow-600 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-2 transition duration-200 shadow-lg" disabled>
+                        Antwort anzeigen
+                    </button>
+                </div>
+            </div>
+            <div class="mt-8">
+                <button id="startLearningBtn"
+                        class="w-full bg-indigo-600 text-white py-3 rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition duration-200 shadow-lg" disabled>
+                    Lernmodus starten
+                </button>
+                <button id="nextWordBtn"
+                        class="w-full mt-4 bg-purple-600 text-white py-3 rounded-md hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 transition duration-200 shadow-lg" disabled>
+                    Nächstes Wort
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // DOM-Elemente abrufen
+        const chapterInput = document.getElementById('chapterInput');
+        const addChapterBtn = document.getElementById('addChapterBtn');
+        const chapterList = document.getElementById('chapterList');
+        const noChapterMessage = document.getElementById('noChapterMessage');
+
+        const chapterSelect = document.getElementById('chapterSelect');
+        const lang1Input = document.getElementById('lang1Input');
+        const lang2Input = document.getElementById('lang2Input');
+        const addVocabularyBtn = document.getElementById('addVocabularyBtn');
+        const vocabularyList = document.getElementById('vocabularyList');
+        const noVocabMessage = document.getElementById('noVocabMessage');
+        const clearAllVocabBtn = document.getElementById('clearAllVocabBtn');
+
+        const learningChapterCheckboxes = document.getElementById('learningChapterCheckboxes');
+        const noLearningChapterMessage = document.getElementById('noLearningChapterMessage');
+        const currentWordDisplay = document.getElementById('currentWord'); // Dies ist jetzt der Karten-Container
+        const cardFront = document.getElementById('cardFront'); // Vorderseite der Karte
+        const cardBack = document.getElementById('cardBack');   // Rückseite der Karte
+
+        const answerInput = document.getElementById('answerInput');
+        const checkAnswerBtn = document.getElementById('checkAnswerBtn');
+        const revealAnswerBtn = document.getElementById('revealAnswerBtn');
+        const startLearningBtn = document.getElementById('startLearningBtn');
+        const nextWordBtn = document.getElementById('nextWordBtn');
+        const feedbackMessage = document.getElementById('feedbackMessage'); // Für Vokabel-Hinzufügen Feedback
+        const importExportFeedback = document.getElementById('importExportFeedback'); // Für Import/Export Feedback
+
+        const exportDataBtn = document.getElementById('exportDataBtn');
+        const importFile = document.getElementById('importFile');
+        const importDataBtn = document.getElementById('importDataBtn');
+
+        // Neue Elemente für Lernoptionen
+        const modeTyping = document.getElementById('modeTyping');
+        const modeFlashcard = document.getElementById('modeFlashcard');
+        const directionLang1ToLang2 = document.getElementById('directionLang1ToLang2');
+        const directionLang2ToLang1 = document.getElementById('directionLang2ToLang1');
+
+        // Arrays zum Speichern der Kapitel und Vokabeln
+        let chapters = [];
+        let vocabularies = [];
+        let currentVocabularyIndex = 0;
+        let learningModeActive = false;
+        let filteredVocabularies = []; // Vokabeln, die im Lernmodus verwendet werden
+
+        // Aktuell ausgewählter Lernmodus und Lernrichtung
+        let selectedLearningMode = 'typing'; // Default
+        let selectedLearningDirection = 'lang1-to-lang2'; // Default
+        let isCardFlipped = false; // Zustand der Karte im Flashcard-Modus
+
+        // --- Kapitel-Funktionen ---
+
+        // Funktion zum Laden der Kapitel aus dem Local Storage
+        function loadChapters() {
+            const storedChapters = localStorage.getItem('chapters');
+            if (storedChapters) {
+                chapters = JSON.parse(storedChapters);
+                displayChapters();
+                populateChapterSelects();
+            }
+        }
+
+        // Funktion zum Speichern der Kapitel im Local Storage
+        function saveChapters() {
+            localStorage.setItem('chapters', JSON.stringify(chapters));
+        }
+
+        // Funktion zum Anzeigen der Kapitel in der Liste
+        function displayChapters() {
+            chapterList.innerHTML = '';
+            if (chapters.length === 0) {
+                noChapterMessage.classList.remove('hidden');
+                chapterList.appendChild(noChapterMessage);
+                disableVocabularyInputs(true); // Vokabel-Eingabefelder deaktivieren
+            } else {
+                noChapterMessage.classList.add('hidden');
+                disableVocabularyInputs(false); // Vokabel-Eingabefelder aktivieren
+                chapters.forEach((chapter, index) => {
+                    const chapterItem = document.createElement('div');
+                    chapterItem.className = 'flex justify-between items-center bg-white p-3 rounded-md shadow-sm mb-2 last:mb-0 border border-gray-100';
+                    chapterItem.innerHTML = `
+                        <span class="text-gray-700 font-medium">${chapter}</span>
+                        <button class="delete-chapter-btn bg-red-100 text-red-600 px-3 py-1 rounded-md text-sm hover:bg-red-200 transition duration-150" data-chapter="${chapter}">
+                            Löschen
+                        </button>
+                    `;
+                    chapterList.appendChild(chapterItem);
+                });
+                document.querySelectorAll('.delete-chapter-btn').forEach(button => {
+                    button.addEventListener('click', (event) => {
+                        const chapterToDelete = event.target.dataset.chapter;
+                        deleteChapter(chapterToDelete);
+                    });
+                });
+            }
+            populateLearningChapterCheckboxes(); // Checkboxen für Lernmodus aktualisieren
+        }
+
+        // Funktion zum Hinzufügen eines Kapitels
+        addChapterBtn.addEventListener('click', () => {
+            const chapterName = chapterInput.value.trim();
+            if (chapterName) {
+                if (!chapters.includes(chapterName)) {
+                    chapters.push(chapterName);
+                    saveChapters();
+                    displayChapters();
+                    populateChapterSelects();
+                    chapterInput.value = '';
+                    setImportExportFeedback('Kapitel erfolgreich hinzugefügt!', 'text-green-600');
+                } else {
+                    setImportExportFeedback('Kapitel existiert bereits!', 'text-red-600');
+                }
+            } else {
+                setImportExportFeedback('Bitte einen Kapitelnamen eingeben!', 'text-red-600');
+            }
+        });
+
+        // Funktion zum Löschen eines Kapitels und zugehöriger Vokabeln
+        function deleteChapter(chapterName) {
+            // Bestätigungsdialog (würde in Produktion durch ein benutzerdefiniertes Modal ersetzt)
+            if (confirm(`Möchten Sie wirklich das Kapitel "${chapterName}" und alle zugehörigen Vokabeln löschen?`)) {
+                chapters = chapters.filter(c => c !== chapterName);
+                vocabularies = vocabularies.filter(v => v.chapter !== chapterName); // Vokabeln des Kapitels löschen
+                saveChapters();
+                saveVocabularies();
+                displayChapters();
+                displayVocabularies();
+                populateChapterSelects();
+                resetLearningMode(); // Lernmodus zurücksetzen, falls Kapitel gelöscht wurde
+                setImportExportFeedback(`Kapitel "${chapterName}" und zugehörige Vokabeln gelöscht.`, 'text-green-600');
+            }
+        }
+
+        // Funktion zum Befüllen der Kapitel-Select-Boxen
+        function populateChapterSelects() {
+            chapterSelect.innerHTML = '<option value="">-- Kapitel auswählen --</option>';
+            chapters.forEach(chapter => {
+                const option = document.createElement('option');
+                option.value = chapter;
+                option.textContent = chapter;
+                chapterSelect.appendChild(option);
+            });
+            // Standardmäßig das erste Kapitel auswählen, falls vorhanden
+            if (chapters.length > 0) {
+                chapterSelect.value = chapters[0];
+            }
+        }
+
+        // Funktion zum Befüllen der Kapitel-Checkboxen für den Lernmodus
+        function populateLearningChapterCheckboxes() {
+            learningChapterCheckboxes.innerHTML = '';
+            if (chapters.length === 0) {
+                noLearningChapterMessage.classList.remove('hidden');
+                learningChapterCheckboxes.appendChild(noLearningChapterMessage);
+            } else {
+                noLearningChapterMessage.classList.add('hidden');
+                chapters.forEach(chapter => {
+                    const checkboxDiv = document.createElement('div');
+                    checkboxDiv.className = 'flex items-center mr-4';
+                    checkboxDiv.innerHTML = `
+                        <input type="checkbox" id="learn-${chapter}" value="${chapter}" class="form-checkbox h-4 w-4 text-indigo-600 rounded focus:ring-indigo-500 mr-1" checked>
+                        <label for="learn-${chapter}" class="text-gray-700 text-sm">${chapter}</label>
+                    `;
+                    learningChapterCheckboxes.appendChild(checkboxDiv);
+                });
+            }
+            updateLearningModeButtons(); // Buttons aktualisieren basierend auf Kapitelauswahl
+        }
+
+        // --- Vokabel-Funktionen (aktualisiert) ---
+
+        // Funktion zum Laden der Vokabeln aus dem Local Storage
+        function loadVocabularies() {
+            const storedVocabularies = localStorage.getItem('vocabularies');
+            if (storedVocabularies) {
+                vocabularies = JSON.parse(storedVocabularies);
+                displayVocabularies();
+            }
+        }
+
+        // Funktion zum Speichern der Vokabeln im Local Storage
+        function saveVocabularies() {
+            localStorage.setItem('vocabularies', JSON.stringify(vocabularies));
+        }
+
+        // Funktion zum Anzeigen der Vokabeln in der Liste
+        function displayVocabularies() {
+            vocabularyList.innerHTML = '';
+            if (vocabularies.length === 0) {
+                noVocabMessage.classList.remove('hidden');
+                vocabularyList.appendChild(noVocabMessage);
+            } else {
+                noVocabMessage.classList.add('hidden');
+                vocabularies.forEach((vocab, index) => {
+                    const vocabItem = document.createElement('div');
+                    vocabItem.className = 'flex justify-between items-center bg-white p-3 rounded-md shadow-sm mb-2 last:mb-0 border border-gray-100';
+                    vocabItem.innerHTML = `
+                        <span class="text-gray-700 font-medium">${vocab.lang1} - ${vocab.lang2} <span class="text-gray-500 text-xs">(${vocab.chapter})</span></span>
+                        <button class="delete-vocab-btn bg-red-100 text-red-600 px-3 py-1 rounded-md text-sm hover:bg-red-200 transition duration-150" data-index="${index}">
+                            Löschen
+                        </button>
+                    `;
+                    vocabularyList.appendChild(vocabItem);
+                });
+                document.querySelectorAll('.delete-vocab-btn').forEach(button => {
+                    button.addEventListener('click', (event) => {
+                        const indexToDelete = parseInt(event.target.dataset.index);
+                        deleteVocabulary(indexToDelete);
+                    });
+                });
+            }
+            updateLearningModeButtons(); // Buttons aktualisieren basierend auf Vokabeln
+        }
+
+        // Funktion zum Hinzufügen einer Vokabel
+        addVocabularyBtn.addEventListener('click', () => {
+            const chapter = chapterSelect.value;
+            const lang1 = lang1Input.value.trim();
+            const lang2 = lang2Input.value.trim();
+
+            if (!chapter) {
+                setFeedbackMessage('Bitte ein Kapitel auswählen!', 'text-red-600');
+                return;
+            }
+
+            if (lang1 && lang2) {
+                vocabularies.push({ lang1, lang2, chapter });
+                saveVocabularies();
+                displayVocabularies();
+                lang1Input.value = '';
+                lang2Input.value = '';
+                lang1Input.focus();
+                setFeedbackMessage('Vokabel erfolgreich hinzugefügt!', 'text-green-600');
+            } else {
+                setFeedbackMessage('Bitte beide Vokabel-Felder ausfüllen!', 'text-red-600');
+            }
+        });
+
+        // Funktion zum Löschen einer Vokabel
+        function deleteVocabulary(index) {
+            vocabularies.splice(index, 1);
+            saveVocabularies();
+            displayVocabularies();
+            if (learningModeActive && currentVocabularyIndex >= filteredVocabularies.length) {
+                startLearningMode(); // Lernmodus neu starten, wenn die aktuelle Vokabel gelöscht wurde
+            }
+            updateLearningModeButtons();
+            setFeedbackMessage('Vokabel gelöscht.', 'text-green-600');
+        }
+
+        // Funktion zum Löschen aller Vokabeln
+        clearAllVocabBtn.addEventListener('click', () => {
+            // Bestätigungsdialog (würde in Produktion durch ein benutzerdefiniertes Modal ersetzt)
+            if (confirm('Möchten Sie wirklich alle Vokabeln löschen?')) {
+                vocabularies = [];
+                saveVocabularies();
+                displayVocabularies();
+                resetLearningMode();
+                updateLearningModeButtons();
+                setFeedbackMessage('Alle Vokabeln gelöscht.', 'text-green-600');
+            }
+        });
+
+        // Funktion zum Deaktivieren/Aktivieren der Vokabel-Eingabefelder
+        function disableVocabularyInputs(disable) {
+            chapterSelect.disabled = disable;
+            lang1Input.disabled = disable;
+            lang2Input.disabled = disable;
+            addVocabularyBtn.disabled = disable;
+        }
+
+        // --- Lernmodus-Funktionen (aktualisiert) ---
+
+        // Event Listener für Lernmodus-Radio-Buttons
+        document.querySelectorAll('input[name="learningMode"]').forEach(radio => {
+            radio.addEventListener('change', (event) => {
+                selectedLearningMode = event.target.value;
+                resetLearningMode(); // Lernmodus zurücksetzen, um UI anzupassen
+            });
+        });
+
+        // Event Listener für Lernrichtung-Radio-Buttons
+        document.querySelectorAll('input[name="learningDirection"]').forEach(radio => {
+            radio.addEventListener('change', (event) => {
+                selectedLearningDirection = event.target.value;
+                resetLearningMode(); // Lernmodus zurücksetzen, um UI anzupassen
+            });
+        });
+
+
+        // Funktion zum Starten des Lernmodus
+        startLearningBtn.addEventListener('click', startLearningMode);
+
+        function startLearningMode() {
+            const selectedChapters = Array.from(learningChapterCheckboxes.querySelectorAll('input[type="checkbox"]:checked'))
+                                         .map(cb => cb.value);
+
+            if (selectedChapters.length === 0) {
+                cardFront.textContent = 'Wählen Sie Kapitel zum Lernen aus!';
+                cardBack.textContent = ''; // Rückseite leeren
+                setLearningControlsVisibility(); // Controls deaktivieren
+                return;
+            }
+
+            filteredVocabularies = vocabularies.filter(vocab => selectedChapters.includes(vocab.chapter));
+
+            if (filteredVocabularies.length === 0) {
+                cardFront.textContent = 'Keine Vokabeln in den ausgewählten Kapiteln!';
+                cardBack.textContent = ''; // Rückseite leeren
+                setLearningControlsVisibility(); // Controls deaktivieren
+                return;
+            }
+
+            learningModeActive = true;
+            currentVocabularyIndex = 0;
+            shuffleVocabularies(filteredVocabularies); // Nur die gefilterten Vokabeln mischen
+            displayCurrentWord();
+
+            answerInput.value = '';
+            setFeedbackMessage('', ''); // Lernmodus Feedback zurücksetzen
+        }
+
+        // Funktion zum Zurücksetzen des Lernmodus
+        function resetLearningMode() {
+            learningModeActive = false;
+            currentVocabularyIndex = 0;
+            filteredVocabularies = [];
+            cardFront.textContent = 'Klicken Sie auf \'Start\'';
+            cardBack.textContent = ''; // Rückseite leeren
+            setLearningControlsVisibility(); // UI-Elemente basierend auf Modus zurücksetzen
+            setFeedbackMessage('', ''); // Lernmodus Feedback zurücksetzen
+            currentWordDisplay.classList.remove('text-green-700', 'text-red-700'); // Farben zurücksetzen
+            currentWordDisplay.classList.add('text-blue-700');
+            updateLearningModeButtons(); // Buttons aktualisieren
+            isCardFlipped = false; // Reset flip state
+            currentWordDisplay.classList.remove('card-flipped'); // Ensure card is not flipped
+        }
+
+        // Hilfsfunktion zum Einstellen der Sichtbarkeit der Lern-Controls
+        function setLearningControlsVisibility() {
+            if (selectedLearningMode === 'typing') {
+                answerInput.classList.remove('hidden');
+                checkAnswerBtn.classList.remove('hidden');
+                revealAnswerBtn.classList.remove('hidden'); // Reveal button always visible in typing mode
+                answerInput.disabled = true;
+                checkAnswerBtn.disabled = true;
+                revealAnswerBtn.disabled = true;
+            } else { // flashcard mode
+                answerInput.classList.add('hidden');
+                checkAnswerBtn.classList.add('hidden');
+                revealAnswerBtn.classList.remove('hidden'); // Reveal button is the "flip" button
+                answerInput.disabled = true; // Still disable, even if hidden
+                checkAnswerBtn.disabled = true; // Still disable, even if hidden
+                revealAnswerBtn.disabled = true;
+            }
+            nextWordBtn.disabled = true;
+        }
+
+
+        // Funktion zum Mischen der Vokabeln
+        function shuffleVocabularies(arr) {
+            for (let i = arr.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [arr[i], arr[j]] = [arr[j], arr[i]];
+            }
+        }
+
+        // Funktion zum Anzeigen des aktuellen Wortes
+        function displayCurrentWord() {
+            if (currentVocabularyIndex < filteredVocabularies.length) {
+                const currentVocab = filteredVocabularies[currentVocabularyIndex];
+                let questionWord, answerWord;
+
+                if (selectedLearningDirection === 'lang1-to-lang2') {
+                    questionWord = currentVocab.lang1;
+                    answerWord = currentVocab.lang2;
+                } else {
+                    questionWord = currentVocab.lang2;
+                    answerWord = currentVocab.lang1;
+                }
+
+                cardFront.textContent = questionWord; // Frage auf der Vorderseite setzen
+                cardBack.textContent = answerWord;   // Antwort auf der Rückseite setzen
+
+                currentWordDisplay.classList.remove('card-flipped'); // Sicherstellen, dass die Karte nicht gedreht ist
+                isCardFlipped = false; // Flip-Zustand für neue Karte zurücksetzen
+
+                answerInput.value = '';
+                setFeedbackMessage('', ''); // Lernmodus Feedback zurücksetzen
+                currentWordDisplay.classList.remove('text-green-700', 'text-red-700');
+                currentWordDisplay.classList.add('text-blue-700');
+
+                if (selectedLearningMode === 'typing') {
+                    answerInput.disabled = false;
+                    answerInput.focus();
+                    checkAnswerBtn.disabled = false;
+                    revealAnswerBtn.disabled = false;
+                    nextWordBtn.disabled = true;
+                } else { // flashcard mode
+                    answerInput.disabled = true;
+                    checkAnswerBtn.disabled = true; // Ausgeblendet, aber gute Praxis
+                    revealAnswerBtn.disabled = false; // "Umdreh"-Button ist aktiv
+                    nextWordBtn.disabled = true; // Immer noch deaktiviert, bis mindestens einmal umgedreht
+                }
+
+            } else {
+                cardFront.textContent = 'Alle Vokabeln gelernt! Gut gemacht!';
+                cardBack.textContent = ''; // Rückseite leeren
+                setLearningControlsVisibility(); // Alle Controls deaktivieren
+                learningModeActive = false;
+                setFeedbackMessage('', ''); // Lernmodus Feedback zurücksetzen
+            }
+        }
+
+        // Funktion zum Prüfen der Antwort (nur im Tippmodus relevant)
+        checkAnswerBtn.addEventListener('click', () => {
+            const currentVocab = filteredVocabularies[currentVocabularyIndex];
+            const userAnswer = answerInput.value.trim().toLowerCase();
+            let correctAnswer;
+
+            if (selectedLearningDirection === 'lang1-to-lang2') {
+                correctAnswer = currentVocab.lang2.toLowerCase();
+            } else {
+                correctAnswer = currentVocab.lang1.toLowerCase();
+            }
+
+            if (userAnswer === correctAnswer) {
+                setFeedbackMessage('Richtig!', 'text-green-600');
+                currentWordDisplay.classList.remove('text-blue-700', 'text-red-700');
+                currentWordDisplay.classList.add('text-green-700');
+            } else {
+                setFeedbackMessage(`Falsch. Die richtige Antwort ist: "${correctAnswer}"`, 'text-red-600');
+                currentWordDisplay.classList.remove('text-blue-700', 'text-green-700');
+                currentWordDisplay.classList.add('text-red-700');
+            }
+            answerInput.disabled = true;
+            checkAnswerBtn.disabled = true;
+            revealAnswerBtn.disabled = true; // Nach dem Prüfen ist Anzeigen nicht mehr nötig
+            nextWordBtn.disabled = false;
+        });
+
+        // Funktion zum Anzeigen der Antwort (unterschiedliches Verhalten je nach Modus)
+        revealAnswerBtn.addEventListener('click', () => {
+            const currentVocab = filteredVocabularies[currentVocabularyIndex];
+            let answerWord;
+
+            if (selectedLearningDirection === 'lang1-to-lang2') {
+                answerWord = currentVocab.lang2;
+            } else {
+                answerWord = currentVocab.lang1;
+            }
+
+            if (selectedLearningMode === 'typing') {
+                setFeedbackMessage(`Die Antwort ist: "${answerWord}"`, 'text-yellow-600');
+                answerInput.value = answerWord;
+                answerInput.disabled = true;
+                checkAnswerBtn.disabled = true;
+                revealAnswerBtn.disabled = true;
+                nextWordBtn.disabled = false;
+            } else { // flashcard mode
+                isCardFlipped = !isCardFlipped;
+                currentWordDisplay.classList.toggle('card-flipped', isCardFlipped);
+
+                setFeedbackMessage(isCardFlipped ? 'Antwort angezeigt.' : 'Zurück zur Frage.', 'text-yellow-600');
+
+                nextWordBtn.disabled = false; // Ermöglicht das Weitergehen zum nächsten Wort nach dem ersten Umdrehen
+            }
+        });
+
+        // Funktion zum Anzeigen des nächsten Wortes
+        nextWordBtn.addEventListener('click', () => {
+            currentVocabularyIndex++;
+            displayCurrentWord();
+        });
+
+        // Funktion zum Aktualisieren der Lernmodus-Buttons (Start/Nächstes Wort)
+        function updateLearningModeButtons() {
+            const selectedChapters = Array.from(learningChapterCheckboxes.querySelectorAll('input[type="checkbox"]:checked'))
+                                         .map(cb => cb.value);
+            const vocabulariesInSelectedChapters = vocabularies.filter(vocab => selectedChapters.includes(vocab.chapter));
+
+            if (vocabulariesInSelectedChapters.length > 0) {
+                startLearningBtn.disabled = false;
+            } else {
+                startLearningBtn.disabled = true;
+                setLearningControlsVisibility(); // Controls deaktivieren, wenn keine Vokabeln zum Lernen
+            }
+        }
+
+        // Event Listener für Änderungen an den Lern-Kapitel-Checkboxen
+        learningChapterCheckboxes.addEventListener('change', updateLearningModeButtons);
+
+        // --- Import/Export Funktionen ---
+
+        // Hilfsfunktion für Feedback-Nachrichten
+        function setFeedbackMessage(message, className) {
+            feedbackMessage.textContent = message;
+            feedbackMessage.className = `text-lg font-semibold mb-4 ${className}`;
+            setTimeout(() => {
+                feedbackMessage.textContent = '';
+                feedbackMessage.className = 'text-lg font-semibold mb-4 min-h-[28px]';
+            }, 3000); // Nachricht nach 3 Sekunden ausblenden
+        }
+
+        function setImportExportFeedback(message, className) {
+            importExportFeedback.textContent = message;
+            importExportFeedback.className = `text-sm text-center ${className}`;
+            setTimeout(() => {
+                importExportFeedback.textContent = '';
+                importExportFeedback.className = 'text-sm text-center min-h-[20px]';
+            }, 3000); // Nachricht nach 3 Sekunden ausblenden
+        }
+
+        // Exportfunktion
+        exportDataBtn.addEventListener('click', () => {
+            const dataToExport = {
+                chapters: chapters,
+                vocabularies: vocabularies
+            };
+            const jsonData = JSON.stringify(dataToExport, null, 2); // Pretty print JSON
+
+            const blob = new Blob([jsonData], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'vokabeltrainer_daten.json';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            setImportExportFeedback('Daten erfolgreich exportiert!', 'text-green-600');
+        });
+
+        // Importfunktion
+        importDataBtn.addEventListener('click', () => {
+            const file = importFile.files[0];
+            if (!file) {
+                setImportExportFeedback('Bitte eine JSON-Datei zum Importieren auswählen.', 'text-red-600');
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const importedData = JSON.parse(e.target.result);
+
+                    // Validierung der importierten Datenstruktur
+                    if (importedData && Array.isArray(importedData.chapters) && Array.isArray(importedData.vocabularies)) {
+                        chapters = importedData.chapters;
+                        vocabularies = importedData.vocabularies;
+
+                        saveChapters();
+                        saveVocabularies();
+
+                        displayChapters();
+                        displayVocabularies();
+                        populateChapterSelects();
+                        populateLearningChapterCheckboxes();
+                        resetLearningMode();
+                        updateLearningModeButtons();
+                        setImportExportFeedback('Daten erfolgreich importiert und geladen!', 'text-green-600');
+                    } else {
+                        setImportExportFeedback('Ungültiges Datenformat. Bitte eine gültige Vokabeltrainer-JSON-Datei auswählen.', 'text-red-600');
+                    }
+                } catch (error) {
+                    console.error('Fehler beim Parsen der JSON-Datei:', error);
+                    setImportExportFeedback('Fehler beim Lesen der Datei. Stellen Sie sicher, dass es eine gültige JSON-Datei ist.', 'text-red-600');
+                }
+            };
+            reader.readAsText(file);
+        });
+
+
+        // Initialisierung beim Laden der Seite
+        document.addEventListener('DOMContentLoaded', () => {
+            loadChapters();
+            loadVocabularies();
+            resetLearningMode();
+            updateLearningModeButtons(); // Initialer Zustand der Buttons
+            setLearningControlsVisibility(); // Setzt die anfängliche Sichtbarkeit der Lern-Controls
+        });
+
+        // Enter-Taste für "Antwort prüfen" im Lernmodus
+        answerInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !checkAnswerBtn.disabled && selectedLearningMode === 'typing') {
+                checkAnswerBtn.click();
+            }
+        });
+
+        // Enter-Taste für "Vokabel hinzufügen"
+        lang2Input.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !addVocabularyBtn.disabled) {
+                addVocabularyBtn.click();
+            }
+        });
+
+        // Enter-Taste für "Kapitel hinzufügen"
+        chapterInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                addChapterBtn.click();
+            }
+        });
+
+    </script>
+</body>
+</html>
